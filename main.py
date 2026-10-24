@@ -1,0 +1,76 @@
+from datetime import date
+from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from sqlalchemy import create_engine
+
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class Create_book (BaseModel):
+    title: str
+    author: str
+    year: int | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+
+class Book (BaseModel):
+    id: int
+    title: str
+    author: str
+    year: int | None = None
+    read: bool
+    rating: int | None = Field(default=None, ge=1, le=5)
+
+class Update_book(BaseModel):
+    title: str | None = None
+    author: str | None = None
+    year: int | None = None
+    read: bool | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+
+books: list[Book] = []
+id_books = 1
+
+def find_book(id_book: int) -> Book:
+    for book in books:
+        if book.id == id_book:
+            return book
+    raise HTTPException(status_code=404, detail="Book not found")
+
+@app.get("/books", response_model=list[Book])
+def get_book():
+    return books
+
+@app.post("/books", response_model=Book, status_code=status.HTTP_201_CREATED)
+def create_book(data: Create_book):
+    global id_books
+    book = Book(
+        id=id_books,
+        title=data.title,
+        author=data.author,
+        year=data.year,
+        read=False,
+        rating=data.rating,
+    )
+    id_books += 1
+    books.append(book)
+    return book
+
+@app.patch("/books/{id_book}", response_model=Book)
+def update_book(id_book: int, data: Update_book):
+    book = find_book(id_book)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(book, field, value)
+    return book
+
+@app.delete("/books/{id_book}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_book(id_book: int):
+    book = find_book(id_book)
+    books.remove(book)
