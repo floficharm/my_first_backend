@@ -1,9 +1,12 @@
-from datetime import date
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from sqlalchemy import create_engine
+from pydantic import BaseModel, Field, ConfigDict
+from sqlalchemy.orm import Session
 
+from database import Base, engine, get_db
+from models import BookModel
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -21,6 +24,7 @@ class Create_book (BaseModel):
     rating: int | None = Field(default=None, ge=1, le=5)
 
 class Book (BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     title: str
     author: str
@@ -38,11 +42,11 @@ class Update_book(BaseModel):
 books: list[Book] = []
 id_books = 1
 
-def find_book(id_book: int) -> Book:
-    for book in books:
-        if book.id == id_book:
-            return book
-    raise HTTPException(status_code=404, detail="Book not found")
+def find_book(id_book: int, db: Session) -> BookModel:
+    book = db.get(BookModel, id_book)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return book
 
 @app.get("/books", response_model=list[Book])
 def get_book():
