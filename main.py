@@ -17,20 +17,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class Create_book (BaseModel):
+class Create_book(BaseModel):
     title: str
     author: str
     year: int | None = None
     rating: int | None = Field(default=None, ge=1, le=5)
 
-class Book (BaseModel):
+
+class Book(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     author: str
     year: int | None = None
     read: bool
     rating: int | None = Field(default=None, ge=1, le=5)
+
 
 class Update_book(BaseModel):
     title: str | None = None
@@ -39,8 +42,6 @@ class Update_book(BaseModel):
     read: bool | None = None
     rating: int | None = Field(default=None, ge=1, le=5)
 
-books: list[Book] = []
-id_books = 1
 
 def find_book(id_book: int, db: Session) -> BookModel:
     book = db.get(BookModel, id_book)
@@ -48,33 +49,38 @@ def find_book(id_book: int, db: Session) -> BookModel:
         raise HTTPException(status_code=404, detail="Book not found")
     return book
 
+
 @app.get("/books", response_model=list[Book])
-def get_book():
-    return books
+def get_book(db: Session = Depends(get_db)):
+    return db.query(BookModel).order_by(BookModel.id).all()
+
 
 @app.post("/books", response_model=Book, status_code=status.HTTP_201_CREATED)
-def create_book(data: Create_book):
-    global id_books
-    book = Book(
-        id=id_books,
+def create_book(data: Create_book, db: Session = Depends(get_db)):
+    book = BookModel(
         title=data.title,
         author=data.author,
         year=data.year,
-        read=False,
         rating=data.rating,
     )
-    id_books += 1
-    books.append(book)
+    db.add(book)
+    db.commit()
+    db.refresh(book)
     return book
+
 
 @app.patch("/books/{id_book}", response_model=Book)
-def update_book(id_book: int, data: Update_book):
-    book = find_book(id_book)
+def update_book(id_book: int, data: Update_book, db: Session = Depends(get_db)):
+    book = find_book(id_book, db)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(book, field, value)
+    db.commit()
+    db.refresh(book)
     return book
 
+
 @app.delete("/books/{id_book}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_book(id_book: int):
-    book = find_book(id_book)
-    books.remove(book)
+def delete_book(id_book: int, db: Session = Depends(get_db)):
+    book = find_book(id_book, db)
+    db.delete(book)
+    db.commit()
