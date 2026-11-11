@@ -2,11 +2,16 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session
+import json
 
 from database import Base, engine, get_db
 from models import BookModel
+from Redis import redis_client
 
 from contextlib import asynccontextmanager
+
+CACHE_KEY = "books:all"
+CACHE_TTL = 60
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,7 +62,14 @@ def find_book(id_book: int, db: Session) -> BookModel:
 
 @app.get("/books", response_model=list[Book])
 def get_book(db: Session = Depends(get_db)):
-    return db.query(BookModel).order_by(BookModel.id).all()
+    cached = redis_client.get(CACHE_KEY)
+    if cached is not None:
+        return json.loads(cached)
+
+    books = db.query(BookModel).order_by(BookModel.id).all()
+    data = [Book.model_validate(b).model_dump() for b in books]
+    redis_client.set(CACHE_KEY, json.dumps(data), ex=CACHE_TTL)
+    return data
 
 
 @app.post("/books", response_model=Book, status_code=status.HTTP_201_CREATED)
@@ -70,6 +82,7 @@ def create_book(data: Create_book, db: Session = Depends(get_db)):
     )
     db.add(book)
     db.commit()
+    redis_client.delete(CACHE_KEY)
     db.refresh(book)
     return book
 
@@ -80,6 +93,7 @@ def update_book(id_book: int, data: Update_book, db: Session = Depends(get_db)):
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(book, field, value)
     db.commit()
+    redis_client.delete(CACHE_KEY)
     db.refresh(book)
     return book
 
@@ -89,3 +103,4 @@ def delete_book(id_book: int, db: Session = Depends(get_db)):
     book = find_book(id_book, db)
     db.delete(book)
     db.commit()
+    redis_client.delete(CACHE_KEY)
